@@ -1,0 +1,20 @@
+# started on Tue Sep 24 09:52:18 2024
+
+
+ Performance counter stats for './progetto':
+
+          1.146,99 msec task-clock                       #    0,038 CPUs utilized             
+             8.813      context-switches                 #    7,684 K/sec                     
+               173      cpu-migrations                   #  150,830 /sec                      
+             6.036      page-faults                      #    5,262 K/sec                     
+     2.838.093.772      cycles                           #    2,474 GHz                       
+     1.260.261.745      stalled-cycles-frontend          #   44,41% frontend cycles idle      
+     2.092.575.082      instructions                     #    0,74  insn per cycle            
+                                                  #    0,60  stalled cycles per insn   
+       432.737.393      branches                         #  377,282 M/sec                     
+        27.242.489      branch-misses                    #    6,30% of all branches           
+
+      30,031014939 seconds time elapsed
+
+       0,549222000 seconds user
+       0,627832000 seconds sys
