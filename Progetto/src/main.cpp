@@ -1,4 +1,4 @@
-/*
+
 // LIBRERIE NECESSARIE//
 #include <iostream>
 #include <fstream>
@@ -13,76 +13,10 @@
 #include <allegro5/allegro_primitives.h>
 #include <allegro5/allegro_font.h>
 #include <allegro5/allegro_ttf.h>
+#include <draw.h> 
+#include <struct.h>
+#include <config.h>
 
-// DICHIARAZIONI COSTANTI//
-
-const int SCREEN_WIDTH = 800;
-const int SCREEN_HEIGHT = 1024;
-const int SHAPE_SIZE = 35;
-const int MENU_HEIGHT = 100;
-const int NUM_SHAPES = 8;
-int current_policy;
-bool policy_selected = false;
-int num_cores = 1; // Default to 1 core
-
-enum MenuState
-{
-    SELECT_ALGORITHM
-};
-
-MenuState menu_state = SELECT_ALGORITHM; // possibile aggiunta in futuro per selezionare il numero di thread dal menù
-
-struct Shape
-{
-    // Coordinate della figura
-    float x, y;
-    // Velocità
-    float speed;
-    // 0 = sinistra, 1 = destra
-    int half;
-    // Priorità
-    int priority;
-    // Colore
-    ALLEGRO_COLOR color;
-    // Stringa che riporta il tipo di schedulazione
-    std::string scheduler_type;
-    // Funzione di disegno
-    void (*draw_func)(float, float, float, ALLEGRO_COLOR);
-
-    // Costruttore
-    Shape(float x_, float y_, float speed_, int half_, int priority_, 
-          ALLEGRO_COLOR color_, void (*draw_func_)(float, float, float, ALLEGRO_COLOR))
-        : x(x_), y(y_), speed(speed_), half(half_), priority(priority_), 
-          color(color_), scheduler_type(""), draw_func(draw_func_) {};
-
-};
-
-
-//---------- Funzioni di disegno per le figure ----------
-void draw_priority(ALLEGRO_FONT *small_font, float x, float y, int priority)
-{
-    al_draw_textf(small_font, al_map_rgb(255, 255, 255), x, y, ALLEGRO_ALIGN_CENTER, "P: %d", priority);
-}
-
-void draw_scheduler(ALLEGRO_FONT *small_font, float x, float y, const std::string& scheduler_type)
-{
-    al_draw_textf(small_font, al_map_rgb(255,255,255), x, y, ALLEGRO_ALIGN_CENTER, "SCHEDULER: %s", scheduler_type.c_str());
-}
-
-void draw_square(float x, float y, float size, ALLEGRO_COLOR color)
-{
-    al_draw_filled_rectangle(x, y, x + size, y + size, color);
-}
-
-void draw_circle(float x, float y, float size, ALLEGRO_COLOR color)
-{
-    al_draw_filled_circle(x + size / 2, y + size / 2, size / 2, color);
-}
-
-void draw_triangle(float x, float y, float size, ALLEGRO_COLOR color)
-{
-    al_draw_filled_triangle(x, y + size, x + size / 2, y, x + size, y + size, color);
-}
 
 void *move_shape(void *arg)
 {
@@ -91,36 +25,43 @@ void *move_shape(void *arg)
     float start_x = shape->half == 0 ? 0 : SCREEN_WIDTH / 2 - SHAPE_SIZE;
     float end_x = shape->half == 0 ? half_screen : SCREEN_WIDTH - SHAPE_SIZE;
 
-    pthread_t thread = pthread_self();
-    std::cout << "Thread ID: " << thread << std::endl;
-
-    int core_id = sched_getcpu();
-    std::cout << "Thread running on core: " << core_id << std::endl;
-
     time_t start_time = time(nullptr);
 
+    // Aggiungiamo una variabile per tenere traccia della direzione
+    bool moving_right = shape->half == 0;  // True se la forma si sta muovendo a destra, false per sinistra
+
+    
     while (true)
     {
-        shape->x += shape->speed;
-
-        // Check if shape has reached the path limits
-        if (shape->x < start_x || shape->x > end_x)
+        for (volatile int i = 0; i < 100000000; ++i)
         {
-            shape->speed = -shape->speed; // Reverse speed
-            shape->x += shape->speed;     // Move shape back within limits
+            // SI PUÒ MODIFICARE CARICO LAVORO PER VEDERE DIFFERENZE
         }
 
-        // Calculate elapsed time
+        // Ogni volta che il thread è schedulato, la posizione viene aggiornata
+
+        shape->x += (moving_right ? 1 : -1);  // Sposta la forma a destra o a sinistra
+
+        // Controlla se la forma ha raggiunto i limiti del percorso
+        if (shape->x <= start_x || shape->x >= end_x)
+        {
+            // Inverte la direzione
+            moving_right = !moving_right;
+        }
+
+        // Calcola il tempo trascorso e cede volontariamente il controllo al sistema operativo ogni secondo
         if (difftime(time(nullptr), start_time) >= 1)
         {
-            sched_yield();
-            start_time = time(nullptr);
+            sched_yield();  // Cede il controllo al sistema operativo
+            start_time = time(nullptr);  // Reset del timer
         }
-        usleep(33333); // Sleep for roughly 16ms (60fps)
+
+        usleep(41666);  // Pausa per 24fps
     }
 
     return nullptr;
 }
+
 
 void set_thread_affinity(pthread_t thread, int total_cores, int thread_index)
 {
@@ -142,47 +83,7 @@ bool running = true;
 time_t start_time;
 time_t last_policy_change_time;
 
-const char *get_policy_name(int policy)
-{
-    switch (policy)
-    {
-    case SCHED_FIFO:
-        return "SCHED_FIFO";
-    case SCHED_RR:
-        return "SCHED_RR";
-    case SCHED_OTHER:
-        return "SCHED_OTHER";
-    default:
-        return "UNKNOWN";
-    }
-}
 
-void draw_menu(ALLEGRO_FONT *font)
-{
-    al_clear_to_color(al_map_rgb(0, 0, 0));
-    if (menu_state == SELECT_ALGORITHM)
-    {
-        al_draw_text(font, al_map_rgb(255, 255, 255), SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 - 150, ALLEGRO_ALIGN_CENTER, "GESTIONE DEI THREAD CONCORRENTI");
-        al_draw_text(font, al_map_rgb(255, 255, 255), SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 - 110, ALLEGRO_ALIGN_CENTER, "(Il programma lavora con un solo core di default)");
-        al_draw_text(font, al_map_rgb(255, 255, 255), SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 - 30, ALLEGRO_ALIGN_CENTER, "Select Scheduling Algorithm:");
-        al_draw_text(font, al_map_rgb(255, 255, 255), SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2, ALLEGRO_ALIGN_CENTER, "1. FIFO");
-        al_draw_text(font, al_map_rgb(255, 255, 255), SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 30, ALLEGRO_ALIGN_CENTER, "2. Round Robin");
-        al_draw_text(font, al_map_rgb(255, 255, 255), SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 60, ALLEGRO_ALIGN_CENTER, "3. Other");
-    }
-}
-
-void draw_performance_metrics(ALLEGRO_FONT *font, int current_policy, int context_switches, double cpu_usage)
-{
-    double elapsed_time = difftime(time(nullptr), start_time);
-    double policy_elapsed_time = difftime(time(nullptr), last_policy_change_time);
-
-    al_draw_textf(font, al_map_rgb(255, 255, 255), 10, 10, ALLEGRO_ALIGN_LEFT, "Premere ESC per terminare");
-
-    al_draw_textf(font, al_map_rgb(255, 255, 255), SCREEN_WIDTH - 10, 10, ALLEGRO_ALIGN_RIGHT, "Policy: %s", get_policy_name(current_policy));
-    al_draw_textf(font, al_map_rgb(255, 255, 255), SCREEN_WIDTH - 10, 30, ALLEGRO_ALIGN_RIGHT, "Elapsed Time: %.2f s", elapsed_time);
-    al_draw_textf(font, al_map_rgb(255, 255, 255), SCREEN_WIDTH - 10, 50, ALLEGRO_ALIGN_RIGHT, "Policy Time: %.2f s", policy_elapsed_time);
-    al_draw_textf(font, al_map_rgb(255, 255, 255), SCREEN_WIDTH - 10, 70, ALLEGRO_ALIGN_RIGHT, "Context Switches: %d", context_switches);
-}
 
 int get_context_switches()
 {
@@ -215,34 +116,16 @@ int get_context_switches()
     if (previous_context_switches == -1)
     {
         previous_context_switches = context_switches;
+        return context_switches;
     }
 
     // Misura il tempo corrente
     time_t current_time = time(NULL);
 
-    int switches_in_last_10_seconds = 0;
+    
     // Se sono passati 10 secondi, calcola la differenza
     if (difftime(current_time, start_time) >= 10.0)
     {
-        switches_in_last_10_seconds = context_switches - previous_context_switches;
-        char policy_corrente[12] = "";
-        switch (current_policy)
-        {
-        case 1:
-            strcpy(policy_corrente, "SCHED_FIFO");
-            break;
-        case 2:
-            strcpy(policy_corrente, "SCHED_RR");
-            break;
-        case 3:
-            strcpy(policy_corrente, "SCHED_OTHER");
-            break;
-        default:
-            strcpy(policy_corrente, "UNKNOWN");
-            break;
-        }
-        printf("Context switches negli ultimi 10 secondi: %d, Policy corrente: %s\n", switches_in_last_10_seconds, policy_corrente);
-
         // Aggiorna il valore e resetta il timer
         previous_context_switches = context_switches;
         start_time = current_time;
@@ -278,43 +161,6 @@ void print_thread_info(pthread_t thread)
     std::cout << std::endl;
 }
 
-double get_cpu_usage()
-{
-    static unsigned long long last_total_user, last_total_user_low, last_total_sys, last_total_idle;
-    float percent;
-
-    FILE *file;
-    unsigned long long total_user, total_user_low, total_sys, total_idle, total;
-
-    file = fopen("/proc/stat", "r");
-
-    if (file == nullptr)
-        return -1;
-
-    fscanf(file, "cpu %llu %llu %llu %llu", &total_user, &total_user_low, &total_sys, &total_idle);
-    fclose(file);
-
-    if (total_user < last_total_user || total_user_low < last_total_user_low || total_sys < last_total_sys || total_idle < last_total_idle)
-    {
-        // Overflow detection. Just skip this value.
-        percent = -1.0;
-    }
-    else
-    {
-        total = (total_user - last_total_user) + (total_user_low - last_total_user_low) + (total_sys - last_total_sys);
-        percent = total;
-        total += (total_idle - last_total_idle);
-        percent /= total;
-        percent *= 100;
-    }
-
-    last_total_user = total_user;
-    last_total_user_low = total_user_low;
-    last_total_sys = total_sys;
-    last_total_idle = total_idle;
-
-    return percent;
-}
 
 int main()
 {
@@ -330,9 +176,6 @@ int main()
         return -1;
     }
 
-    // Install signal handler
-    // signal(SIGINT, signal_handler);
-
     // Create display
     ALLEGRO_DISPLAY *display = al_create_display(SCREEN_WIDTH, SCREEN_HEIGHT);
     if (!display)
@@ -342,8 +185,8 @@ int main()
     }
 
     // Load font
-    ALLEGRO_FONT *font = al_load_ttf_font("../Font/Pixel.TTF", 24, 0);
-    ALLEGRO_FONT *small_font = al_load_ttf_font("../Font/Minecraft.ttf", 12, 0);
+    ALLEGRO_FONT *font = al_load_ttf_font("/home/jsk/Scrivania/Progetto_SO_Dedicati/Progetto/Font/Pixel.TTF", 24, 0);
+    ALLEGRO_FONT *small_font = al_load_ttf_font("/home/jsk/Scrivania/Progetto_SO_Dedicati/Progetto/Font/Minecraft.ttf", 12, 0);
     if (!font || !small_font)
     {
         std::cerr << "Failed to load font!" << std::endl;
@@ -362,8 +205,6 @@ int main()
     // Initialize semaphore
     sem_init(&render_semaphore, 0, 1);
 
-    // inizializzo menù
-
     // Select initial scheduling policy
     ALLEGRO_EVENT_QUEUE *event_queue = al_create_event_queue();
     al_register_event_source(event_queue, al_get_display_event_source(display));
@@ -374,7 +215,7 @@ int main()
     while (!policy_selected)
     {
         al_clear_to_color(al_map_rgb(0, 0, 0));
-        draw_menu(font);
+        draw_menu(font, small_font);
         al_flip_display();
 
         ALLEGRO_EVENT ev;
@@ -388,15 +229,43 @@ int main()
                 switch (ev.keyboard.keycode)
                 {
                 case ALLEGRO_KEY_1:
-                    current_policy = SCHED_FIFO;
+                    NUM_SHAPES = 1;
                     policy_selected = true;
                     break;
                 case ALLEGRO_KEY_2:
-                    current_policy = SCHED_RR;
+                    NUM_SHAPES = 2;
                     policy_selected = true;
                     break;
                 case ALLEGRO_KEY_3:
-                    current_policy = SCHED_OTHER;
+                    NUM_SHAPES = 3;
+                    policy_selected = true;
+                    break;
+                case ALLEGRO_KEY_4:
+                    NUM_SHAPES = 4;
+                    policy_selected = true;
+                    break;
+                case ALLEGRO_KEY_5:
+                    NUM_SHAPES = 5;
+                    policy_selected = true;
+                    break;
+                case ALLEGRO_KEY_6:
+                    NUM_SHAPES = 6;
+                    policy_selected = true;
+                    break;
+                case ALLEGRO_KEY_7:
+                    NUM_SHAPES = 7;
+                    policy_selected = true;
+                    break;
+                case ALLEGRO_KEY_8:
+                    NUM_SHAPES = 8;
+                    policy_selected = true;
+                    break;
+                case ALLEGRO_KEY_9:
+                    NUM_SHAPES = 9;
+                    policy_selected = true;
+                    break;
+                case ALLEGRO_KEY_0:
+                    NUM_SHAPES = 10;
                     policy_selected = true;
                     break;
                 }
@@ -424,7 +293,7 @@ int main()
         shapes.push_back({0, y, speed1, 0, priority, color1, draw_func1});
 
         // Create shape for the right half
-        shapes.push_back({SCREEN_WIDTH / 2, y, speed2, 1, priority, color2, draw_func2});
+        shapes.push_back({static_cast<float>(SCREEN_WIDTH) / 2, y, speed2, 1, priority, color2, draw_func2});
     }
 
     struct sched_param param;
@@ -437,21 +306,21 @@ int main()
         pthread_create(&threads[i], nullptr, move_shape, &shapes[i]);
         set_thread_affinity(threads[i], num_cores, i);
         print_thread_info(threads[i]);
-        //pthread_setschedparam(threads[i], current_policy, &param);
 
         // Assegna una schedulazione diversa a ciascun thread
+
         struct sched_param param = {}; // Inizializza senza impostare sched_priority
         int policy;
         switch (i % 3)
         {
         case 0:
             policy = SCHED_FIFO;
-            param.sched_priority = sched_get_priority_min(SCHED_FIFO);
+            param.sched_priority = sched_get_priority_min(SCHED_FIFO) + 1;//MODIFICARE PRIORITÀ PER VEDERE DEI CAMBIAMENTI 
             shapes[i].scheduler_type = "SCHED_FIFO";
             break;
         case 1:
             policy = SCHED_RR;
-            param.sched_priority = sched_get_priority_min(SCHED_RR);
+            param.sched_priority = sched_get_priority_min(SCHED_RR) + 3;//MODIFICARE PRIORITÀ PER VEDERE DEI CAMBIAMENTI
             shapes[i].scheduler_type = "SCHED_RR";
             break;
         default:
@@ -470,25 +339,21 @@ int main()
             std::cout << "Thread " << i << " configurato con " << shapes[i].scheduler_type << std::endl;
             std::cout << "Priorità impostata: " << param.sched_priority << std::endl;
         }
-    }
+
+        int cur_policy;
+        struct sched_param cur_param;
+        pthread_getschedparam(threads[i], &cur_policy, &cur_param);
+        std::cout << "Thread " << i << " ha la politica " 
+                << ((cur_policy == SCHED_FIFO) ? "SCHED_FIFO" :
+                    (cur_policy == SCHED_RR) ? "SCHED_RR" : "SCHED_OTHER")
+                << " e priorità " << cur_param.sched_priority << std::endl;
 
 
-    if (running)
-    {
-        struct sched_param param;
-        param.sched_priority = (current_policy == SCHED_OTHER) ? 0 : 10;
-        for (const auto &thread : threads)
-        {
-            if (pthread_setschedparam(thread, current_policy, &param) != 0)
-            {
-                std::cerr << "Failed to set initial scheduling policy" << std::endl;
-            }
-        }
     }
 
     // Initialize timing variables
     start_time = time(nullptr);
-    last_policy_change_time = time(nullptr);
+
     int context_switches = get_context_switches();
 
     time_t last_cpu_check_time = time(nullptr);
@@ -510,36 +375,26 @@ int main()
         if (!event_occured)
         {
 
-            if (!policy_selected)
-            {
-                draw_menu(font);
-            }
-            else
-            {
-                sem_wait(&render_semaphore);
-                al_clear_to_color(al_map_rgb(0, 0, 0));
-                for (const auto &shape : shapes)
+            sem_wait(&render_semaphore);
+            al_clear_to_color(al_map_rgb(0, 0, 0));
+            for (const auto &shape : shapes)
                 {
                     shape.draw_func(shape.x, shape.y, SHAPE_SIZE, shape.color);
                     draw_priority(small_font, shape.x, shape.y, shape.priority);
                     draw_scheduler(small_font, shape.x, shape.y, shape.scheduler_type);
                 }
-                draw_performance_metrics(font, current_policy, get_context_switches() - context_switches, get_cpu_usage());
-                al_flip_display();
 
-                sem_post(&render_semaphore);
+            draw_performance_metrics(small_font, get_context_switches() - context_switches);
+            al_flip_display();
 
-                usleep(16000);
+            sem_post(&render_semaphore);
+
+            usleep(16000);
 
                 // Check if 1.5 seconds have passed to check CPU usage
-                if (difftime(time(nullptr), last_cpu_check_time) >= 1.5)
-                {
-                    last_cpu_check_time = time(nullptr);
-                    float cpu_usage = get_cpu_usage();
-                    std::cout << "CPU Usage: " << cpu_usage << "%" << std::endl;
-                }
-            }
+                
         }
+        
     }
 
     // Cleanup
@@ -557,4 +412,3 @@ int main()
     return 0;
 }
 
-*/
